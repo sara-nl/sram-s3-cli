@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="SURFscz/sram-s3-cli"
+REPO="sara-nl/sram-s3-cli"
 DOWNLOAD_BASE="https://github.com/${REPO}/releases/latest/download"
 INSTALL_DIR="/usr/local/bin"
 BINARY="sram-s3"
@@ -42,7 +42,8 @@ install_binary() {
   curl -fsSL -o "${tmpdir}/checksums.sha256" "${checksum_url}"
 
   echo "Verifying checksum…"
-  ( cd "${tmpdir}" && grep "${filename}" checksums.sha256 | sha256sum -c - )
+  ( cd "${tmpdir}" && grep "${filename}" checksums.sha256 | \
+      { command -v sha256sum >/dev/null 2>&1 && sha256sum -c - || shasum -a 256 -c -; } )
 
   chmod +x "${tmpdir}/${filename}"
 

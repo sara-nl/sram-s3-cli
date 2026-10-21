@@ -1,0 +1,40 @@
+version: 2
+
+project_name: sram-s3
+
+before:
+  hooks:
+    - go test ./sram-s3/...
+
+builds:
+  - id: sram-s3
+    dir: sram-s3
+    main: .
+    binary: sram-s3
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.defaultBrokerURL=https://sram-s3.production.sdp.surf.nl
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: sram-s3
+    builds: [sram-s3]
+    format: binary
+    name_template: "sram-s3-{{ .Os }}-{{ .Arch }}"
+
+checksum:
+  name_template: checksums.sha256
+  algorithm: sha256
+
+release:
+  github:
+    owner: sara-nl
+    name: sram-s3-cli

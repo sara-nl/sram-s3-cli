@@ -96,29 +96,26 @@ func runLogin(args []string) int {
 		return 1
 	}
 
-	entClaim := firstNonEmpty(os.Getenv("OIDC_ENTITLEMENTS_CLAIM"), "eduperson_entitlement")
-	scope := "openid profile email groups " + entClaim
-	regionFallback := firstNonEmpty(os.Getenv("AWS_REGION"), "default")
+	regionFallback := firstNonEmpty(os.Getenv("AWS_REGION"), os.Getenv("AWS_DEFAULT_REGION"), "default")
 
 	if debug {
-		fmt.Fprintf(os.Stderr, "DEBUG: broker=%s project=%q scope=%q\n", broker, project, scope)
+		fmt.Fprintf(os.Stderr, "DEBUG: broker=%s project=%q\n", broker, project)
 	}
 
 	client := NewBrokerClient(broker)
-	dev, err := client.StartDeviceAuth(scope)
+	dev, err := client.StartDeviceAuth()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 		fmt.Fprintln(os.Stderr, "Hint: upstream IdP must support RFC 8628 device authorization.")
 		return 1
 	}
 
-	var openURL string
 	if uri := strings.TrimSpace(dev.VerificationURIComplete); uri != "" {
 		fmt.Fprintf(os.Stderr, "Open: %s\n", uri)
-		openURL = uri
+		openBrowser(uri)
 	} else if uri := strings.TrimSpace(dev.VerificationURI); uri != "" {
 		fmt.Fprintf(os.Stderr, "Open: %s\n", uri)
-		openURL = uri
+		openBrowser(uri)
 		if code := strings.TrimSpace(dev.UserCode); code != "" {
 			fmt.Fprintf(os.Stderr, "Enter code: %s\n", code)
 		}
@@ -126,10 +123,6 @@ func runLogin(args []string) int {
 		fmt.Fprintf(os.Stderr, "Device code: %s\n", code)
 	}
 	fmt.Fprintf(os.Stderr, "Complete sign-in in the browser, then this tool will poll for tokens (expires in %ds).\n", dev.ExpiresIn)
-
-	if openURL != "" {
-		openBrowser(openURL)
-	}
 
 	deadline := time.Now().Add(time.Duration(dev.ExpiresIn) * time.Second)
 	accessToken, err := client.PollDeviceToken(dev.DeviceCode, time.Duration(dev.Interval)*time.Second, deadline, os.Stderr)

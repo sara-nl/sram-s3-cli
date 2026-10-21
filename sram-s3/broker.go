@@ -113,10 +113,8 @@ func (c *BrokerClient) postJSON(path string, payload any) ([]byte, int, error) {
 	return body, resp.StatusCode, nil
 }
 
-func (c *BrokerClient) StartDeviceAuth(scope string) (*deviceAuthResponse, error) {
-	form := url.Values{}
-	form.Set("scope", scope)
-	body, code, err := c.postForm("/oidc/device", form)
+func (c *BrokerClient) StartDeviceAuth() (*deviceAuthResponse, error) {
+	body, code, err := c.postForm("/oidc/device", url.Values{})
 	if err != nil {
 		return nil, fmt.Errorf("POST /oidc/device: %w", err)
 	}
@@ -293,6 +291,7 @@ func printExportEnv(w io.Writer, sts *stsResponse, regionFallback string) error 
 	c := sts.Credentials
 	fmt.Fprintf(w, "export AWS_ENDPOINT_URL=%s\n", shellQuote(sts.S3EndpointURL))
 	fmt.Fprintf(w, "export AWS_REGION=%s\n", shellQuote(region))
+	fmt.Fprintf(w, "export AWS_DEFAULT_REGION=%s\n", shellQuote(region))
 	fmt.Fprintf(w, "export AWS_ACCESS_KEY_ID=%s\n", shellQuote(c.AccessKeyID))
 	fmt.Fprintf(w, "export AWS_SECRET_ACCESS_KEY=%s\n", shellQuote(c.SecretAccessKey))
 	fmt.Fprintf(w, "export AWS_SESSION_TOKEN=%s\n", shellQuote(c.SessionToken))
