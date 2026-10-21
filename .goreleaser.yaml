@@ -4,8 +4,7 @@ project_name: sram-s3
 
 before:
   hooks:
-    - cmd: go test ./...
-      dir: sram-s3
+    - sh -c "cd sram-s3 && go test ./..."
 
 builds:
   - id: sram-s3
