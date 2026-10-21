@@ -10,26 +10,27 @@ The Go binary is the recommended tool; bash scripts are provided as an alternati
 ## Install
 
 ```bash
-curl -fsSL https://github.com/SURFscz/sram-s3-cli/releases/latest/download/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sara-nl/sram-s3-cli/main/install.sh | sh
 ```
+
+The script detects your OS and architecture, downloads the correct binary, installs it to
+`/usr/local/bin/` (or `~/.local/bin/` as fallback), and adds a shell wrapper function.
 
 Or build from source (requires Go 1.22+):
 
 ```bash
 cd sram-s3
 make build
-sudo cp sram-s3 /usr/local/bin/   # makes it available from any directory
+sudo cp sram-s3 /usr/local/bin/
 ```
 
 ### One-time shell setup
 
-Add a wrapper function to your shell so you just type `srams3`:
+The install script does this automatically. If you built from source, add the wrapper manually:
 
 ```bash
 echo 'srams3() { eval "$(sram-s3 login "$@")"; }' >> ~/.zshrc && source ~/.zshrc
 ```
-
-(`install.sh` does this automatically.)
 
 ---
 
@@ -58,17 +59,19 @@ eval "$(sram-s3 login)"
 
 ## Configuration
 
-`.env` is **only auto-loaded by the bash scripts** (`scripts/sram-s3-sts-pam.sh`). The Go
-binary does not read `.env` — it reads environment variables from your shell.
+The Go binary reads environment variables from your shell. The production broker URL is
+baked in at build time — no configuration needed for installed binaries.
 
-For the Go binary built with `make build`, the production broker URL is baked in and no
-configuration is needed. If you built with `go build .` directly, set `SRAM_BROKER_URL`
-in your shell or pass `-b <url>`.
-
-To configure the bash scripts, copy `.env.example` to `.env`:
+If you built with `go build .` directly (no ldflags), set the broker URL explicitly:
 
 ```bash
-cp .env.example .env
+export SRAM_BROKER_URL=https://sram-s3.production.sdp.surf.nl
+```
+
+or pass it per invocation:
+
+```bash
+srams3 -b https://sram-s3.production.sdp.surf.nl
 ```
 
 ---
@@ -87,8 +90,10 @@ make release    # cross-compile all platforms to dist/
 ## Repository layout
 
 ```
-sram-s3/      Go binary
-scripts/      bash scripts for device code and PAM login
-.env.example
-install.sh
+sram-s3/          Go binary source
+scripts/          bash scripts (alternative to the Go binary)
+  cli-common.sh
+  sram-s3-sts-device.sh   device code flow
+  sram-s3-sts-pam.sh      PAM weblogin flow
+install.sh        end-user install script
 ```
