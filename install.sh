@@ -35,7 +35,7 @@ install_binary() {
   local checksum_url="${DOWNLOAD_BASE}/checksums.sha256"
   local tmpdir
   tmpdir="$(mktemp -d)"
-  trap 'rm -rf "${tmpdir}"' EXIT
+  trap 'rm -rf "${tmpdir:-}"' EXIT
 
   echo "Downloading ${url} …"
   curl -fsSL -o "${tmpdir}/${filename}" "${url}"
