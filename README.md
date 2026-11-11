@@ -1,7 +1,7 @@
 # sram-s3 CLI
 
 Command-line tool for obtaining temporary S3 credentials from an
-[SRAM S3 broker](https://github.com/SURFscz/sram-s3) via the OIDC device code flow.
+[SRAM S3 broker](https://sram-s3.production.sdp.surf.nl) via the OIDC device code flow.
 
 The Go binary is the recommended tool; bash scripts are provided as an alternative.
 
