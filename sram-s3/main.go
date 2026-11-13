@@ -20,6 +20,16 @@ import (
 var version = "0.1.0"
 var defaultBrokerURL = ""
 
+// credentialProcessOutput is the AWS credential_process JSON format (Version 1).
+// See https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sourcing-external.html
+type credentialProcessOutput struct {
+	Version         int    `json:"Version"`
+	AccessKeyId     string `json:"AccessKeyId"`
+	SecretAccessKey string `json:"SecretAccessKey"`
+	SessionToken    string `json:"SessionToken"`
+	Expiration      string `json:"Expiration,omitempty"`
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		printUsage(os.Stderr)
@@ -48,11 +58,12 @@ Usage:
   sram-s3 help
 
 login options:
-  -b, --broker URL     Broker base URL (or env SRAM_BROKER_URL)
-  -p, --project TARGET Optional <marker>[:members|admin]
-  --json               Print STS JSON instead of shell exports
-  --eval               Force shell export lines on stdout (default when not --json)
-  -d, --debug          Debug to stderr
+  -b, --broker URL       Broker base URL (or env SRAM_BROKER_URL)
+  -p, --project TARGET   Optional <marker>[:members|admin]
+  --credential-process   Print AWS credential_process JSON to stdout.
+  -d, --debug            Debug to stderr, including raw broker responses at each step.
+
+By default, shell export lines are printed to stdout (use with eval).
 
 Examples:
   eval "$(sram-s3 login)"
@@ -65,20 +76,18 @@ func runLogin(args []string) int {
 	fs := flag.NewFlagSet("login", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	var (
-		broker    string
-		project   string
-		asJSON    bool
-		forceEval bool
-		debug     bool
+		broker            string
+		project           string
+		debug             bool
+		credentialProcess bool
 	)
 	fs.StringVar(&broker, "b", "", "broker URL")
 	fs.StringVar(&broker, "broker", "", "broker URL")
 	fs.StringVar(&project, "p", "", "project target")
 	fs.StringVar(&project, "project", "", "project target")
-	fs.BoolVar(&asJSON, "json", false, "print STS JSON")
-	fs.BoolVar(&forceEval, "eval", false, "print shell exports")
 	fs.BoolVar(&debug, "d", false, "debug")
 	fs.BoolVar(&debug, "debug", false, "debug")
+	fs.BoolVar(&credentialProcess, "credential-process", false, "print AWS credential_process JSON")
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
@@ -132,7 +141,7 @@ func runLogin(args []string) int {
 	}
 	fmt.Fprintln(os.Stderr, "Signed in. Requesting STS credentials…")
 
-	sts, err := client.DeviceSTS(accessToken, project)
+	sts, err := client.DeviceSTS(accessToken, project, debug)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 		return 1
@@ -161,7 +170,7 @@ func runLogin(args []string) int {
 			return 1
 		}
 		project = chosen
-		sts, err = client.DeviceSTS(accessToken, project)
+		sts, err = client.DeviceSTS(accessToken, project, debug)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 			return 1
@@ -174,10 +183,17 @@ func runLogin(args []string) int {
 		return 1
 	}
 
-	if asJSON && !forceEval {
+	if credentialProcess {
+		out := credentialProcessOutput{
+			Version:         1,
+			AccessKeyId:     sts.Credentials.AccessKeyID,
+			SecretAccessKey: sts.Credentials.SecretAccessKey,
+			SessionToken:    sts.Credentials.SessionToken,
+			Expiration:      sts.Credentials.Expiration,
+		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		if err := enc.Encode(sts); err != nil {
+		if err := enc.Encode(out); err != nil {
 			fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 			return 1
 		}
