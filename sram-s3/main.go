@@ -5,12 +5,14 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -72,6 +74,66 @@ Examples:
 `)
 }
 
+const credCacheGracePeriod = 5 * time.Minute
+
+func credCachePath(broker, project string) (string, error) {
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	key := fmt.Sprintf("%s\x00%s", broker, project)
+	hash := sha256.Sum256([]byte(key))
+	dir := filepath.Join(cacheDir, "sram-s3")
+	return filepath.Join(dir, fmt.Sprintf("%x.json", hash)), nil
+}
+
+func loadCachedCredentials(broker, project string) *credentialProcessOutput {
+	path, err := credCachePath(broker, project)
+	if err != nil {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var out credentialProcessOutput
+	if err := json.Unmarshal(data, &out); err != nil {
+		_ = os.Remove(path)
+		return nil
+	}
+	if out.Expiration == "" {
+		return nil
+	}
+	exp, err := time.Parse(time.RFC3339, out.Expiration)
+	if err != nil {
+		_ = os.Remove(path)
+		return nil
+	}
+	if time.Until(exp) < credCacheGracePeriod {
+		return nil
+	}
+	return &out
+}
+
+func writeCachedCredentials(broker, project string, out *credentialProcessOutput) error {
+	path, err := credCachePath(broker, project)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
 func runLogin(args []string) int {
 	fs := flag.NewFlagSet("login", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -109,6 +171,21 @@ func runLogin(args []string) int {
 
 	if debug {
 		fmt.Fprintf(os.Stderr, "DEBUG: broker=%s project=%q\n", broker, project)
+	}
+
+	if credentialProcess {
+		if cached := loadCachedCredentials(broker, project); cached != nil {
+			if debug {
+				fmt.Fprintf(os.Stderr, "DEBUG: using cached credentials (expires %s)\n", cached.Expiration)
+			}
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(cached); err != nil {
+				fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
+				return 1
+			}
+			return 0
+		}
 	}
 
 	client := NewBrokerClient(broker)
@@ -191,6 +268,7 @@ func runLogin(args []string) int {
 			SessionToken:    sts.Credentials.SessionToken,
 			Expiration:      sts.Credentials.Expiration,
 		}
+		_ = writeCachedCredentials(broker, project, &out)
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(out); err != nil {
