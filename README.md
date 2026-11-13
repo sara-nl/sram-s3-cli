@@ -46,7 +46,7 @@ Override broker or pre-select a project:
 
 ```bash
 srams3 -b https://sram-s3.playground.sdp.surf.nl
-srams3 -p surf_demo:project2:members
+srams3 -p xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:members
 ```
 
 Without the shell wrapper:
@@ -54,6 +54,43 @@ Without the shell wrapper:
 ```bash
 eval "$(sram-s3 login)"
 ```
+
+By default `sram-s3 login` prints shell export lines to stdout, which set
+`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`,
+`AWS_ENDPOINT_URL`, and `AWS_REGION` in the current shell when used with `eval`.
+
+---
+
+## AWS profile integration (`credential_process`)
+
+`sram-s3` can act as an AWS `credential_process` provider so any AWS tool
+(CLI, boto3, Terraform, …) obtains credentials automatically via a named
+profile in `~/.aws/config`, without manual `eval` or export steps.
+
+### Finding your project target
+
+Run `sram-s3 login` without `-p`. If your account belongs to multiple projects
+you will be prompted to select one; each option shows the target string in
+parentheses. The target is `<collaboration-uuid>:<group>`, where group is
+typically `members`, `admin`, or a specific group name. Copy the string and
+use it as the `-p` value.
+
+### Profile setup
+
+```ini
+[profile my-project]
+credential_process = sram-s3 login --credential-process -p xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:members
+endpoint_url = https://objectstore.surf.nl
+region = default
+```
+
+```bash
+aws --profile my-project s3 ls
+```
+
+The AWS SDK caches credentials until they expire and re-invokes the command
+automatically — the browser prompt only fires when credentials are missing or
+expired. For multiple projects, add a separate profile per project.
 
 ---
 

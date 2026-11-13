@@ -197,7 +197,10 @@ func (c *BrokerClient) PollDeviceToken(deviceCode string, interval time.Duration
 	return "", fmt.Errorf("device authorization timed out")
 }
 
-func (c *BrokerClient) DeviceSTS(accessToken, target string) (*stsResponse, error) {
+// DeviceSTS calls /cli/device-sts and returns the parsed response.
+// When debug is true the raw response body is written to stderr before parsing,
+// capturing the exact broker JSON including any fields not in stsResponse.
+func (c *BrokerClient) DeviceSTS(accessToken, target string, debug bool) (*stsResponse, error) {
 	payload := map[string]string{"access_token": accessToken}
 	if strings.TrimSpace(target) != "" {
 		payload["target"] = strings.TrimSpace(target)
@@ -205,6 +208,9 @@ func (c *BrokerClient) DeviceSTS(accessToken, target string) (*stsResponse, erro
 	body, code, err := c.postJSON("/cli/device-sts", payload)
 	if err != nil {
 		return nil, fmt.Errorf("POST /cli/device-sts: %w", err)
+	}
+	if debug {
+		fmt.Fprintf(os.Stderr, "DEBUG: POST /cli/device-sts response: %s\n", body)
 	}
 	var out stsResponse
 	if err := json.Unmarshal(body, &out); err != nil {
