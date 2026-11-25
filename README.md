@@ -10,27 +10,55 @@ The Go binary is the recommended tool; bash scripts are provided as an alternati
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sara-nl/sram-s3-cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/sara-nl/sram-s3-cli/main/install.sh | bash
 ```
 
-The script detects your OS and architecture, downloads the correct binary, installs it to
-`/usr/local/bin/` (or `~/.local/bin/` as fallback), and adds a shell wrapper function.
+The script downloads the binary for your OS and architecture, verifies its
+checksum and installs it to `~/.local/bin` — no sudo needed. It adds a short
+block to your shell rc file (`~/.zshrc`, `~/.bashrc`, or `~/.bash_profile` on
+macOS) that puts `~/.local/bin` on your `PATH` and defines the `srams3`
+wrapper. Open a new terminal afterwards.
+
+Options, set as environment variables for `bash`:
+
+```bash
+# install system-wide (uses sudo if the directory is not writable)
+curl -fsSL https://raw.githubusercontent.com/sara-nl/sram-s3-cli/main/install.sh | SRAM_S3_INSTALL_DIR=/usr/local/bin bash
+
+# install a specific version
+curl -fsSL https://raw.githubusercontent.com/sara-nl/sram-s3-cli/main/install.sh | SRAM_S3_VERSION=v0.2.0 bash
+
+# do not touch shell rc files (prints what to add instead)
+curl -fsSL https://raw.githubusercontent.com/sara-nl/sram-s3-cli/main/install.sh | SRAM_S3_NO_MODIFY_PATH=1 bash
+```
 
 Or build from source (requires Go 1.22+):
 
 ```bash
 cd sram-s3
 make build
-sudo cp sram-s3 /usr/local/bin/
+mkdir -p ~/.local/bin && cp sram-s3 ~/.local/bin/
 ```
 
 ### One-time shell setup
 
-The install script does this automatically. If you built from source, add the wrapper manually:
+The install script does this automatically. Otherwise add to your `~/.zshrc`
+or `~/.bashrc`:
 
 ```bash
-echo 'srams3() { eval "$(sram-s3 login "$@")"; }' >> ~/.zshrc && source ~/.zshrc
+export PATH="$HOME/.local/bin:$PATH"
+srams3() { eval "$(sram-s3 login "$@")"; }
 ```
+
+### Uninstall
+
+```bash
+rm ~/.local/bin/sram-s3
+rm -rf ~/.cache/sram-s3 ~/Library/Caches/sram-s3   # cached credentials
+```
+
+and remove the `# >>> sram-s3 >>>` … `# <<< sram-s3 <<<` block from your
+shell rc file.
 
 ---
 
@@ -77,9 +105,12 @@ use it as the `-p` value.
 
 ### Profile setup
 
+Use the absolute path to `sram-s3` (the installer prints it): tools started
+from an IDE or other GUI app often do not see your shell's `PATH`.
+
 ```ini
 [profile my-project]
-credential_process = sram-s3 login --credential-process -p xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:members
+credential_process = /home/you/.local/bin/sram-s3 login --credential-process -p xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:members
 endpoint_url = https://objectstore.surf.nl
 region = default
 ```
