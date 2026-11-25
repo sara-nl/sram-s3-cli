@@ -40,6 +40,8 @@ func main() {
 	switch os.Args[1] {
 	case "login":
 		os.Exit(runLogin(os.Args[2:]))
+	case "logout":
+		os.Exit(runLogout(os.Args[2:]))
 	case "version", "-version", "--version":
 		fmt.Printf("sram-s3 %s\n", version)
 	case "help", "-h", "--help":
@@ -56,6 +58,7 @@ func printUsage(w io.Writer) {
 
 Usage:
   sram-s3 login [options]
+  sram-s3 logout [-b URL] [-p TARGET]
   sram-s3 version
   sram-s3 help
 
@@ -63,28 +66,87 @@ login options:
   -b, --broker URL       Broker base URL (or env SRAM_BROKER_URL)
   -p, --project TARGET   Optional <marker>[:members|admin]
   --credential-process   Print AWS credential_process JSON to stdout.
+                         Credentials are cached on disk until shortly before
+                         they expire.
   -d, --debug            Debug to stderr, including raw broker responses at each step.
 
 By default, shell export lines are printed to stdout (use with eval).
+
+logout removes cached --credential-process credentials: all of them, or only
+those for -p TARGET. Issued credentials stay valid until they expire.
 
 Examples:
   eval "$(sram-s3 login)"
   eval "$(sram-s3 login -p surf_demo:project2:members)"
   aws --endpoint-url "$AWS_ENDPOINT_URL" s3 ls
+  sram-s3 logout
 `)
 }
 
 const credCacheGracePeriod = 5 * time.Minute
 
-func credCachePath(broker, project string) (string, error) {
+func credCacheDir() (string, error) {
 	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(cacheDir, "sram-s3"), nil
+}
+
+func credCachePath(broker, project string) (string, error) {
+	dir, err := credCacheDir()
 	if err != nil {
 		return "", err
 	}
 	key := fmt.Sprintf("%s\x00%s", broker, project)
 	hash := sha256.Sum256([]byte(key))
-	dir := filepath.Join(cacheDir, "sram-s3")
 	return filepath.Join(dir, fmt.Sprintf("%x.json", hash)), nil
+}
+
+// clearCachedCredentials removes the cache entry for one broker/project pair.
+// It reports whether an entry existed.
+func clearCachedCredentials(broker, project string) (bool, error) {
+	path, err := credCachePath(broker, project)
+	if err != nil {
+		return false, err
+	}
+	if err := os.Remove(path); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// clearAllCachedCredentials removes every cache entry (all brokers and projects)
+// and returns the number of entries removed.
+func clearAllCachedCredentials() (int, error) {
+	dir, err := credCacheDir()
+	if err != nil {
+		return 0, err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	removed := 0
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !(strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".json.tmp")) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, name)); err != nil && !os.IsNotExist(err) {
+			return removed, err
+		}
+		if strings.HasSuffix(name, ".json") {
+			removed++
+		}
+	}
+	return removed, nil
 }
 
 func loadCachedCredentials(broker, project string) *credentialProcessOutput {
@@ -155,17 +217,15 @@ func runLogin(args []string) int {
 		return 2
 	}
 
-	if broker == "" {
-		broker = firstNonEmpty(os.Getenv("SRAM_BROKER_URL"), os.Getenv("OIDC_ISSUER"), defaultBrokerURL)
-	}
+	broker = resolveBroker(broker)
 	if project == "" {
 		project = firstNonEmpty(os.Getenv("SRAM_PROJECT"), os.Getenv("SRAM_CLI_TARGET"))
 	}
-	broker = strings.TrimRight(strings.TrimSpace(broker), "/")
 	if broker == "" {
 		fmt.Fprintln(os.Stderr, "ERROR: missing broker URL (−b / --broker or SRAM_BROKER_URL)")
 		return 1
 	}
+	requestedProject := project
 
 	regionFallback := firstNonEmpty(os.Getenv("AWS_REGION"), os.Getenv("AWS_DEFAULT_REGION"), "default")
 
@@ -268,7 +328,13 @@ func runLogin(args []string) int {
 			SessionToken:    sts.Credentials.SessionToken,
 			Expiration:      sts.Credentials.Expiration,
 		}
+		// Cached under the final target. If the user had to choose (no -p, or a
+		// -p matching several roles), the requested key is deliberately not
+		// cached: reusing it would silently skip the choice next time.
 		_ = writeCachedCredentials(broker, project, &out)
+		if project != requestedProject {
+			fmt.Fprintf(os.Stderr, "Tip: add -p %s to the credential_process command to reuse cached credentials.\n", project)
+		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(out); err != nil {
@@ -284,6 +350,60 @@ func runLogin(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+func runLogout(args []string) int {
+	fs := flag.NewFlagSet("logout", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	var broker, project string
+	fs.StringVar(&broker, "b", "", "broker URL")
+	fs.StringVar(&broker, "broker", "", "broker URL")
+	fs.StringVar(&project, "p", "", "project target")
+	fs.StringVar(&project, "project", "", "project target")
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+
+	const note = "Note: this only removes the local copy; issued credentials stay valid until they expire."
+
+	if strings.TrimSpace(project) == "" {
+		n, err := clearAllCachedCredentials()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
+			return 1
+		}
+		if n == 0 {
+			fmt.Fprintln(os.Stderr, "No cached credentials.")
+			return 0
+		}
+		fmt.Fprintf(os.Stderr, "Removed %d cached credential set(s).\n%s\n", n, note)
+		return 0
+	}
+
+	broker = resolveBroker(broker)
+	if broker == "" {
+		fmt.Fprintln(os.Stderr, "ERROR: missing broker URL (−b / --broker or SRAM_BROKER_URL)")
+		return 1
+	}
+	removed, err := clearCachedCredentials(broker, strings.TrimSpace(project))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
+		return 1
+	}
+	if !removed {
+		fmt.Fprintf(os.Stderr, "No cached credentials for %s.\n", project)
+		return 0
+	}
+	fmt.Fprintf(os.Stderr, "Removed cached credentials for %s.\n%s\n", project, note)
+	return 0
+}
+
+// resolveBroker applies the broker URL fallbacks: flag → SRAM_BROKER_URL →
+// OIDC_ISSUER → compiled-in default.
+func resolveBroker(flagValue string) string {
+	b := firstNonEmpty(flagValue, os.Getenv("SRAM_BROKER_URL"), os.Getenv("OIDC_ISSUER"), defaultBrokerURL)
+	return strings.TrimRight(b, "/")
 }
 
 func openBrowser(url string) {

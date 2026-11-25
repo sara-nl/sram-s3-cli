@@ -88,9 +88,22 @@ region = default
 aws --profile my-project s3 ls
 ```
 
-The AWS SDK caches credentials until they expire and re-invokes the command
-automatically — the browser prompt only fires when credentials are missing or
-expired. For multiple projects, add a separate profile per project.
+`sram-s3` caches the credentials on disk (`~/Library/Caches/sram-s3/` on
+macOS, `~/.cache/sram-s3/` on Linux) and reuses them until 5 minutes before
+they expire, so the browser prompt only appears when a new login is needed.
+For multiple projects, add a separate profile per project, each with `-p`.
+Without `-p`, caching only works if your account has a single project.
+
+To remove cached credentials (e.g. after a role change or on a shared
+machine):
+
+```bash
+sram-s3 logout                                   # all cached credentials
+sram-s3 logout -p xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:members   # one project
+```
+
+`logout` only deletes the local copy; issued credentials remain valid until
+they expire.
 
 ---
 

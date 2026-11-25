@@ -53,22 +53,22 @@ type stsCredentials struct {
 }
 
 type stsResponse struct {
-	Status        string         `json:"status"`
-	Targets       []stsTarget    `json:"targets"`
+	Status        string          `json:"status"`
+	Targets       []stsTarget     `json:"targets"`
 	Credentials   *stsCredentials `json:"Credentials"`
-	S3EndpointURL string         `json:"S3EndpointUrl"`
-	AwsRegion     string         `json:"AwsRegion"`
-	Detail        any            `json:"detail"`
-	Error         string         `json:"error"`
-	Message       string         `json:"message"`
+	S3EndpointURL string          `json:"S3EndpointUrl"`
+	AwsRegion     string          `json:"AwsRegion"`
+	Detail        any             `json:"detail"`
+	Error         string          `json:"error"`
+	Message       string          `json:"message"`
 }
 
 type stsTarget struct {
-	Target           string `json:"target"`
-	Label            string `json:"label"`
-	CollaborationID  string `json:"collaboration_id"`
-	Role             string `json:"role"`
-	IamRoleName      string `json:"iam_role_name"`
+	Target          string `json:"target"`
+	Label           string `json:"label"`
+	CollaborationID string `json:"collaboration_id"`
+	Role            string `json:"role"`
+	IamRoleName     string `json:"iam_role_name"`
 }
 
 func (c *BrokerClient) postForm(path string, form url.Values) ([]byte, int, error) {
