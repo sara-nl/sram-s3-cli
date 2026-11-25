@@ -224,3 +224,18 @@ func TestResolveBroker(t *testing.T) {
 		t.Fatalf("flag: got %q", got)
 	}
 }
+
+func TestWriteRemovesExpiredEntries(t *testing.T) {
+	isolateCache(t)
+	_ = writeCachedCredentials(testBroker, "old", testCreds(-time.Minute))
+	_ = writeCachedCredentials(testBroker, "valid", testCreds(time.Hour))
+	_ = writeCachedCredentials(testBroker, "new", testCreds(time.Hour))
+
+	for p, want := range map[string]bool{"old": false, "valid": true, "new": true} {
+		path, _ := credCachePath(testBroker, p)
+		_, err := os.Stat(path)
+		if got := err == nil; got != want {
+			t.Errorf("%s: exists=%v, want %v", p, got, want)
+		}
+	}
+}

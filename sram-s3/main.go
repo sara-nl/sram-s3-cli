@@ -182,9 +182,12 @@ func writeCachedCredentials(broker, project string, out *credentialProcessOutput
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
+	removeExpiredCache(dir)
+
 	data, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
 		return err
@@ -194,6 +197,23 @@ func writeCachedCredentials(broker, project string, out *credentialProcessOutput
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// removeExpiredCache deletes cache files whose credentials have expired or
+// cannot be read, so old secrets do not pile up on disk.
+func removeExpiredCache(dir string) {
+	files, _ := filepath.Glob(filepath.Join(dir, "*.json"))
+	for _, f := range files {
+		var c credentialProcessOutput
+		data, err := os.ReadFile(f)
+		if err == nil {
+			err = json.Unmarshal(data, &c)
+		}
+		exp, perr := time.Parse(time.RFC3339, c.Expiration)
+		if err != nil || perr != nil || time.Now().After(exp) {
+			_ = os.Remove(f)
+		}
+	}
 }
 
 func runLogin(args []string) int {
