@@ -161,9 +161,17 @@ srams3 -b https://sram-s3.production.sdp.surf.nl
 
 ```bash
 cd sram-s3
-make build      # with version + default broker URL via ldflags
+make build      # version from git + default broker URL via ldflags
 make test
-make release    # cross-compile all platforms to dist/
+```
+
+Releases (all platforms, checksums, GitHub Release) are built with
+[GoReleaser](https://goreleaser.com) from the repository root:
+
+```bash
+goreleaser release --snapshot --clean   # local test build into dist/
+git tag vX.Y.Z && git push origin vX.Y.Z
+goreleaser release --clean              # publish
 ```
 
 ---
@@ -177,4 +185,5 @@ scripts/          bash scripts (alternative to the Go binary)
   sram-s3-sts-device.sh   device code flow
   sram-s3-sts-pam.sh      PAM weblogin flow
 install.sh        end-user install script
+.goreleaser.yaml  release build configuration
 ```
