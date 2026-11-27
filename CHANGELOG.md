@@ -4,7 +4,7 @@ All notable changes to this project. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [1.0.0] — unreleased
+## [1.0.0] — 2026-11-27
 
 Needs broker 3.0.0 or later; CLI 0.x does not work against broker 3.0.0, and 1.0.0 does not work
 against broker 2.x.
