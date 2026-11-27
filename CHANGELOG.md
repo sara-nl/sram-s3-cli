@@ -4,6 +4,50 @@ All notable changes to this project. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.0] — unreleased
+
+Needs broker 3.0.0 or later; CLI 0.x does not work against broker 3.0.0, and 1.0.0 does not work
+against broker 2.x.
+
+### Changed (breaking)
+- Uses the broker's `/cli/v1` API: one credentials loop for device and PAM logins. The CLI no
+  longer receives or sends any token; it hands the broker only the IdP's device code or PAM
+  session + PIN.
+- Targets are the role's SRAM entitlement (e.g. `org1:project1:s3admin`), or `<id>:<role>` as
+  listed, instead of `<collaboration-uuid>:<group>`.
+- Cache entries written by 0.x are discarded; log in once again.
+
+### Added
+- New role list, grouped by project, with the names known from SRAM (`member`,
+  `project admin (s3admin)`, `group <name>`) and the target to pass to `-p`. After a choice,
+  the IAM role used is shown. Without a terminal, the list is printed with "re-run with
+  -p <target>"; a `-p` that is not one of your roles shows your roles instead of a bare error.
+- `sram-s3 login --pam <SRAM username>`: SRAM PAM weblogin in the binary; the PIN is read from
+  the terminal without echo.
+- `sram-s3 status [-p TARGET]`: the cached credentials per target (valid until, broker) with a
+  ready-to-paste `~/.aws/config` profile (absolute path, target, endpoint, region). The cache
+  entry stores broker, target, endpoint and region for this.
+- `AWS_SESSION_EXPIRATION` is always exported; region and endpoint come from the broker.
+
+### Changed
+- `--debug` shows the raw `/cli/v1` responses, with the secret key and session token redacted.
+- The bash scripts are merged into one `scripts/sram-s3-login.sh` (device and PAM, `-u` for
+  PAM; needs only `bash`, `curl`, `jq`). It prints `export` lines like the binary
+  (`eval "$(scripts/sram-s3-login.sh)"`) and never prints credentials or the PIN to the
+  terminal; the PIN is no longer echoed.
+- README rewritten for 1.0.0.
+
+### Removed
+- `OIDC_ISSUER` as a broker URL fallback, and `SRAM_CLI_TARGET` (use `SRAM_PROJECT`).
+- The `"default"` region fallback and `AWS_REGION` / `AWS_DEFAULT_REGION` from the environment as
+  a fallback: the broker always sends the region.
+- `scripts/cli-common.sh`, `sram-s3-sts-device.sh`, `sram-s3-sts-pam.sh`,
+  `sram-s3-select-target.py` (and its Python dependency), the scripts' `.env` loading and
+  `.env.example`.
+
+### Fixed
+- The "missing broker URL" error used a Unicode minus in `-b`.
+
 ## [0.3.1] — 2026-11-25
 
 ### Changed
@@ -82,6 +126,7 @@ First release.
 - Bash scripts as an alternative: device code flow and PAM weblogin flow.
 - Apache 2.0 license.
 
+[1.0.0]: https://github.com/sara-nl/sram-s3-cli/compare/v0.3.1...v1.0.0
 [0.3.1]: https://github.com/sara-nl/sram-s3-cli/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/sara-nl/sram-s3-cli/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/sara-nl/sram-s3-cli/compare/v0.2.0...v0.2.1

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -23,20 +25,34 @@ func isolateCache(t *testing.T) string {
 	return dir
 }
 
-func testCreds(expiresIn time.Duration) *credentialProcessOutput {
-	return &credentialProcessOutput{
-		Version:         1,
-		AccessKeyId:     "AKI",
-		SecretAccessKey: "SEC",
-		SessionToken:    "TOK",
-		Expiration:      time.Now().Add(expiresIn).UTC().Format(time.RFC3339),
+func testEntry(broker, target string, expiresIn time.Duration) *cacheEntry {
+	return &cacheEntry{
+		credentialProcessOutput: credentialProcessOutput{
+			Version:         1,
+			AccessKeyId:     "AKI",
+			SecretAccessKey: "SEC",
+			SessionToken:    "TOK",
+			Expiration:      time.Now().Add(expiresIn).UTC().Format(time.RFC3339),
+		},
+		Broker:      broker,
+		Target:      target,
+		EndpointURL: "https://s3.example",
+		Region:      "us-east-1",
+	}
+}
+
+// writeTest writes a cache entry for testBroker.
+func writeTest(t *testing.T, target string, expiresIn time.Duration) {
+	t.Helper()
+	if err := writeCachedCredentials(testEntry(testBroker, target, expiresIn)); err != nil {
+		t.Fatal(err)
 	}
 }
 
 func TestCacheRoundTrip(t *testing.T) {
 	isolateCache(t)
-	in := testCreds(time.Hour)
-	if err := writeCachedCredentials(testBroker, "a:members", in); err != nil {
+	in := testEntry(testBroker, "a:members", time.Hour)
+	if err := writeCachedCredentials(in); err != nil {
 		t.Fatal(err)
 	}
 	got := loadCachedCredentials(testBroker, "a:members")
@@ -50,9 +66,7 @@ func TestCacheRoundTrip(t *testing.T) {
 
 func TestCacheFilePermissions(t *testing.T) {
 	isolateCache(t)
-	if err := writeCachedCredentials(testBroker, "a:members", testCreds(time.Hour)); err != nil {
-		t.Fatal(err)
-	}
+	writeTest(t, "a:members", time.Hour)
 	path, _ := credCachePath(testBroker, "a:members")
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -72,9 +86,7 @@ func TestCacheFilePermissions(t *testing.T) {
 
 func TestCacheKeyedByBrokerAndProject(t *testing.T) {
 	isolateCache(t)
-	if err := writeCachedCredentials(testBroker, "a:members", testCreds(time.Hour)); err != nil {
-		t.Fatal(err)
-	}
+	writeTest(t, "a:members", time.Hour)
 	if loadCachedCredentials(testBroker, "b:members") != nil {
 		t.Fatal("hit for other project")
 	}
@@ -88,9 +100,7 @@ func TestCacheKeyedByBrokerAndProject(t *testing.T) {
 
 func TestCacheMissWithinGracePeriod(t *testing.T) {
 	isolateCache(t)
-	if err := writeCachedCredentials(testBroker, "a", testCreds(credCacheGracePeriod-time.Minute)); err != nil {
-		t.Fatal(err)
-	}
+	writeTest(t, "a", credCacheGracePeriod-time.Minute)
 	if loadCachedCredentials(testBroker, "a") != nil {
 		t.Fatal("expected miss for credentials expiring within the grace period")
 	}
@@ -98,9 +108,7 @@ func TestCacheMissWithinGracePeriod(t *testing.T) {
 
 func TestCacheMissWhenExpired(t *testing.T) {
 	isolateCache(t)
-	if err := writeCachedCredentials(testBroker, "a", testCreds(-time.Hour)); err != nil {
-		t.Fatal(err)
-	}
+	writeTest(t, "a", -time.Hour)
 	if loadCachedCredentials(testBroker, "a") != nil {
 		t.Fatal("expected miss for expired credentials")
 	}
@@ -108,9 +116,9 @@ func TestCacheMissWhenExpired(t *testing.T) {
 
 func TestCacheMissWithoutExpiration(t *testing.T) {
 	isolateCache(t)
-	c := testCreds(time.Hour)
+	c := testEntry(testBroker, "a", time.Hour)
 	c.Expiration = ""
-	if err := writeCachedCredentials(testBroker, "a", c); err != nil {
+	if err := writeCachedCredentials(c); err != nil {
 		t.Fatal(err)
 	}
 	if loadCachedCredentials(testBroker, "a") != nil {
@@ -121,7 +129,8 @@ func TestCacheMissWithoutExpiration(t *testing.T) {
 func TestCacheCorruptFileRemoved(t *testing.T) {
 	for name, content := range map[string]string{
 		"invalid JSON":       "{not json",
-		"invalid Expiration": `{"Version":1,"AccessKeyId":"AKI","Expiration":"2026-01-01 00:00:00"}`,
+		"invalid Expiration": `{"Version":1,"AccessKeyId":"AKI","Expiration":"2026-01-01 00:00:00","broker":"https://broker.example","target":"a"}`,
+		"CLI 0.x entry":      `{"Version":1,"AccessKeyId":"AKI","Expiration":"2099-01-01T00:00:00Z"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			isolateCache(t)
@@ -145,9 +154,7 @@ func TestCacheCorruptFileRemoved(t *testing.T) {
 func TestClearCachedCredentials(t *testing.T) {
 	isolateCache(t)
 	for _, p := range []string{"a", "b"} {
-		if err := writeCachedCredentials(testBroker, p, testCreds(time.Hour)); err != nil {
-			t.Fatal(err)
-		}
+		writeTest(t, p, time.Hour)
 	}
 	removed, err := clearCachedCredentials(testBroker, "a")
 	if err != nil || !removed {
@@ -174,9 +181,7 @@ func TestClearAllCachedCredentials(t *testing.T) {
 	}
 
 	for _, p := range []string{"a", "b", ""} {
-		if err := writeCachedCredentials(testBroker, p, testCreds(time.Hour)); err != nil {
-			t.Fatal(err)
-		}
+		writeTest(t, p, time.Hour)
 	}
 	// Leftover temp file and an unrelated file.
 	if err := os.WriteFile(filepath.Join(dir, "x.json.tmp"), []byte("{}"), 0600); err != nil {
@@ -208,7 +213,7 @@ func TestClearAllCachedCredentials(t *testing.T) {
 
 func TestResolveBroker(t *testing.T) {
 	t.Setenv("SRAM_BROKER_URL", "")
-	t.Setenv("OIDC_ISSUER", "")
+	t.Setenv("OIDC_ISSUER", "https://ignored.example") // no fallback to the broker's own setting
 	old := defaultBrokerURL
 	defer func() { defaultBrokerURL = old }()
 	defaultBrokerURL = "https://default.example"
@@ -227,9 +232,9 @@ func TestResolveBroker(t *testing.T) {
 
 func TestWriteRemovesExpiredEntries(t *testing.T) {
 	isolateCache(t)
-	_ = writeCachedCredentials(testBroker, "old", testCreds(-time.Minute))
-	_ = writeCachedCredentials(testBroker, "valid", testCreds(time.Hour))
-	_ = writeCachedCredentials(testBroker, "new", testCreds(time.Hour))
+	writeTest(t, "old", -time.Minute)
+	writeTest(t, "valid", time.Hour)
+	writeTest(t, "new", time.Hour)
 
 	for p, want := range map[string]bool{"old": false, "valid": true, "new": true} {
 		path, _ := credCachePath(testBroker, p)
@@ -237,5 +242,92 @@ func TestWriteRemovesExpiredEntries(t *testing.T) {
 		if got := err == nil; got != want {
 			t.Errorf("%s: exists=%v, want %v", p, got, want)
 		}
+	}
+}
+
+func TestCachedCredentialProcessOutputUnchanged(t *testing.T) {
+	// The cache file holds broker/target/endpoint/region, but what login prints from it
+	// is the credential_process format only.
+	isolateCache(t)
+	writeTest(t, "a", time.Hour)
+	got := loadCachedCredentials(testBroker, "a")
+	var buf bytes.Buffer
+	if err := printCredentialProcess(&buf, got.credentialProcessOutput); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{"broker", "target", "endpoint_url", "region"} {
+		if strings.Contains(buf.String(), `"`+s+`"`) {
+			t.Fatalf("%s in credential_process output:\n%s", s, buf.String())
+		}
+	}
+}
+
+func TestStatus(t *testing.T) {
+	old := defaultBrokerURL
+	defer func() { defaultBrokerURL = old }()
+	defaultBrokerURL = "https://sram-s3.production.sdp.surf.nl"
+
+	now := time.Date(2026, 11, 27, 13, 45, 0, 0, time.UTC)
+	entry := func(broker, target string, exp time.Time) *cacheEntry {
+		e := testEntry(broker, target, 0)
+		e.Expiration = exp.Format(time.RFC3339)
+		e.EndpointURL = "https://objectstore.example.org"
+		return e
+	}
+	entries := []*cacheEntry{
+		entry("https://sram-s3.production.sdp.surf.nl", "org1:project1:s3admin", now.Add(47*time.Minute)),
+		entry("https://sram-s3.production.sdp.surf.nl", "org1:project1", time.Date(2026, 11, 27, 11, 5, 0, 0, time.UTC)),
+		entry("https://sram-s3.playground.sdp.surf.nl", "surf:play_x", now.Add(3*time.Minute)),
+	}
+	var buf bytes.Buffer
+	printStatus(&buf, entries, "", "/home/you/.local/bin/sram-s3", now)
+	want := `org1:project1:s3admin   valid until 14:32 (47 min)                          https://sram-s3.production.sdp.surf.nl
+
+[profile org1-project1-s3admin]
+credential_process = /home/you/.local/bin/sram-s3 login --credential-process -p org1:project1:s3admin
+endpoint_url = https://objectstore.example.org
+region = us-east-1
+
+org1:project1           expired 11:05                                       https://sram-s3.production.sdp.surf.nl
+
+[profile org1-project1]
+credential_process = /home/you/.local/bin/sram-s3 login --credential-process -p org1:project1
+endpoint_url = https://objectstore.example.org
+region = us-east-1
+
+surf:play_x             valid until 13:48 (3 min, next use logs in again)   https://sram-s3.playground.sdp.surf.nl
+
+[profile surf-play-x]
+credential_process = /home/you/.local/bin/sram-s3 login --credential-process -b https://sram-s3.playground.sdp.surf.nl -p surf:play_x
+endpoint_url = https://objectstore.example.org
+region = us-east-1
+`
+	if buf.String() != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", buf.String(), want)
+	}
+
+	buf.Reset()
+	printStatus(&buf, entries, "org1:project1", "/x/sram-s3", now)
+	if !strings.HasPrefix(buf.String(), "org1:project1   expired 11:05") || strings.Contains(buf.String(), "s3admin") {
+		t.Fatalf("-p: got:\n%s", buf.String())
+	}
+
+	buf.Reset()
+	printStatus(&buf, nil, "", "/x/sram-s3", now)
+	if !strings.HasPrefix(buf.String(), "No cached credentials. Log in once with") {
+		t.Fatalf("empty: got %q", buf.String())
+	}
+}
+
+func TestCachedEntriesSorted(t *testing.T) {
+	isolateCache(t)
+	writeTest(t, "b", time.Hour)
+	writeTest(t, "a", time.Hour)
+	es, err := cachedEntries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(es) != 2 || es[0].Target != "a" || es[1].Target != "b" || es[0].Broker != testBroker {
+		t.Fatalf("got %+v", es)
 	}
 }
